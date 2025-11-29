@@ -1,0 +1,27 @@
+services:
+  # --- Master Node ---
+  master:
+    build: .
+    container_name: shard-master
+    # The master listens on 1234 and processes 'data/input.txt'
+    command: ["./shard", "-mode", "master", "-port", "1234", "data/input.txt"]
+    ports:
+      - "1234:1234"
+    networks:
+      - shard-net
+
+  # --- Worker Nodes (x3) ---
+  worker:
+    build: .
+    deploy:
+      replicas: 3
+    depends_on:
+      - master
+    # Workers listen on port 80 (internal) and connect to 'master:1234'
+    command: ["./shard", "-mode", "worker", "-port", "80", "-master", "master:1234"]
+    networks:
+      - shard-net
+
+networks:
+  shard-net:
+    driver: bridge
