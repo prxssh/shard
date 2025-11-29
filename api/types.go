@@ -7,5 +7,5 @@ type KeyValue struct {
 
 type (
 	MapFunc    func(key, val string) []KeyValue
-	ReduceFunc func(key string, val []KeyValue) []KeyValue
+	ReduceFunc func(key string, values []string) string
 )

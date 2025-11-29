@@ -38,16 +38,13 @@ func Map(key, document string) []api.KeyValue {
 
 // --- 2. The Reducer ---
 // Goal: Sum up the list of "1"s for a specific word
-func Reduce(key string, values []api.KeyValue) []api.KeyValue {
+func Reduce(key string, values []string) string {
 	count := 0
 	for _, v := range values {
-		i, _ := strconv.Atoi(v.Value)
+		i, _ := strconv.Atoi(v)
 		count += i
 	}
-	return []api.KeyValue{{
-		Key:   key,
-		Value: strconv.Itoa(count),
-	}}
+	return strconv.Itoa(count)
 }
 
 func main() {
