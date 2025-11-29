@@ -10,8 +10,8 @@ import (
 	"os"
 
 	"github.com/google/uuid"
+	"github.com/prxssh/shard/api"
 	"github.com/prxssh/shard/internal/transport"
-	"github.com/prxssh/shard/pkg/api"
 )
 
 var (

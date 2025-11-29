@@ -1,15 +1,17 @@
 FROM golang:1.25-alpine AS builder
 
+ARG EXAMPLE=wordcount
+
 WORKDIR /app
 
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o shard cmd/shard/main.go 
+RUN cd examples/${EXAMPLE} && go build -o /app/app .
 
 FROM alpine:latest
 WORKDIR /app
-COPY --from=builder /app/shard .
-RUN mkdir data && echo "Hello distributed world. This is a text file to be processed by the shard system." > data/input.txt
+COPY --from=builder /app/app .
+COPY examples/data ./data
 
-CMD ["./shard"]
+CMD ["./app"]

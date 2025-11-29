@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/prxssh/shard/api"
 	"github.com/prxssh/shard/internal/master"
 	"github.com/prxssh/shard/internal/worker"
-	"github.com/prxssh/shard/pkg/api"
 )
 
 type Mode string

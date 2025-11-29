@@ -9,11 +9,12 @@ import (
 	"unicode"
 
 	"github.com/prxssh/shard"
+	"github.com/prxssh/shard/api"
 )
 
 // --- 1. The Mapper ---
 // Goal: Split the chunk into words and emit (word, "1")
-func Map(document string) []api.KeyValue {
+func Map(key, document string) []api.KeyValue {
 	// Split by anything that is NOT a letter or number (removes punctuation)
 	splitter := func(c rune) bool {
 		return !unicode.IsLetter(c) && !unicode.IsNumber(c)
@@ -37,13 +38,16 @@ func Map(document string) []api.KeyValue {
 
 // --- 2. The Reducer ---
 // Goal: Sum up the list of "1"s for a specific word
-func Reduce(key string, values []string) string {
+func Reduce(key string, values []api.KeyValue) []api.KeyValue {
 	count := 0
 	for _, v := range values {
-		i, _ := strconv.Atoi(v)
+		i, _ := strconv.Atoi(v.Value)
 		count += i
 	}
-	return strconv.Itoa(count)
+	return []api.KeyValue{{
+		Key:   key,
+		Value: strconv.Itoa(count),
+	}}
 }
 
 func main() {
@@ -54,7 +58,9 @@ func main() {
 
 	flag.Parse()
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
 
 	cfg := shard.Config{
 		Mode:       shard.Mode(*mode),
