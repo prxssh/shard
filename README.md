@@ -9,6 +9,8 @@ A distributed MapReduce framework in Go, inspired by Google's MapReduce paper.
 
 Shard is a lightweight MapReduce implementation that lets you write distributed data processing applications with minimal boilerplate. Define your `Map` and `Reduce` functions, and Shard handles the rest—task scheduling, data partitioning, worker coordination, and fault tolerance.
 
+> This is an educational implementation for learning distributed systems concepts. For production workloads, consider mature frameworks like Apache Hadoop or Apache Spark.
+
 **Key Features:**
 - Simple API - Write only Map and Reduce functions
 - Automatic data partitioning across M map tasks and R reduce partitions
@@ -248,7 +250,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 Built with inspiration from:
 - Google's MapReduce paper (Dean & Ghemawat, 2004)
 - MIT 6.824 Distributed Systems course
-
----
-
-**Note:** This is an educational implementation for learning distributed systems concepts. For production workloads, consider mature frameworks like Apache Hadoop or Apache Spark.
