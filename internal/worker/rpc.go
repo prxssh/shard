@@ -7,14 +7,14 @@ import (
 	"github.com/prxssh/shard/internal/task"
 )
 
-func (w *Worker) pingMaster() error {
+func (w *Worker) sendHeartbeat() error {
 	args := shardrpc.HearbeatArgs{WorkerID: w.id}
 	var reply shardrpc.HearbeatReply
 
-	return w.callMaster("Master.WorkerHeartbeat", &args, &reply)
+	return w.invokeRPC("Master.WorkerHeartbeat", &args, &reply)
 }
 
-func (w *Worker) report(taskID int64, taskType task.Type, taskErr error) error {
+func (w *Worker) reportTask(taskID int64, taskType task.Type, taskErr error) error {
 	args := shardrpc.ReportTaskArgs{
 		WorkerID: w.id,
 		TaskID:   taskID,
@@ -23,20 +23,22 @@ func (w *Worker) report(taskID int64, taskType task.Type, taskErr error) error {
 	}
 	var reply shardrpc.ReportTaskReply
 
-	return w.callMaster("Master.ReportTask", &args, &reply)
+	return w.invokeRPC("Master.ReportTask", &args, &reply)
 }
 
-func (w *Worker) requestWork() (shardrpc.AskTaskReply, error) {
+func (w *Worker) askTask() (shardrpc.AskTaskReply, error) {
 	args := shardrpc.AskTaskArgs{WorkerID: w.id}
 	var reply shardrpc.AskTaskReply
 
-	if err := w.callMaster("Method.AskTask", &args, &reply); err != nil {
+	if err := w.invokeRPC("Method.AskTask", &args, &reply); err != nil {
 		return shardrpc.AskTaskReply{}, err
 	}
 	return reply, nil
 }
 
-func (w *Worker) callMaster(method string, args, reply any) error {
+func (w *Worker) invokeRPC(method string, args, reply any) error {
+	w.logger.Debug("invoking rpc", "method", method)
+
 	client, err := rpc.DialHTTP("tcp", w.cfg.MasterAddr)
 	if err != nil {
 		return err

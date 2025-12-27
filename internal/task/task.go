@@ -3,7 +3,7 @@ package task
 import (
 	"time"
 
-	"storj.io/common/uuid"
+	"github.com/google/uuid"
 )
 
 // Type represents the phase of the MapReduce job.
@@ -61,9 +61,9 @@ type Task struct {
 	// Type determines if this is a Map or Reduce task.
 	Type Type
 
-	// NReduce is the total number of reduce partitions.
+	// ReducePartitions is the total number of reduce partitions.
 	// Mappers need this to correctly hash keys into buckets (hash(key) % NReduce).
-	NReduce int
+	ReducePartitions int
 
 	// ReduceID is the partition number this task is responsible for (0 to NReduce-1).
 	// The worker uses this to locate intermediate files.

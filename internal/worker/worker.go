@@ -13,9 +13,14 @@ import (
 )
 
 const (
+	// heartbeatInterval is how often the worker pings the master to prove liveness.
 	hearbeatInterval = 5 * time.Second
-	pollInterval     = 1 * time.Second
-	retryInterval    = 5 * time.Second
+
+	// pollInterval is the wait time when the Master says "no work yet".
+	pollInterval = 1 * time.Second
+
+	// retryInterval is the wait time when the Master is unreachable.
+	retryInterval = 5 * time.Second
 )
 
 // Config holds the runtime configuration and user-defined functions for a
@@ -52,20 +57,14 @@ type Config struct {
 type Worker struct {
 	cfg    *Config
 	logger *slog.Logger
-
-	// id is a unique identifier generated at startup.
-	id uuid.UUID
-
-	// fs is the abstraction for the underlying storage system (Local, S3,
-	// HDFS). The worker uses this to read input splits and write results.
-	fs api.Storer
+	id     uuid.UUID
+	fs     api.Storer
 }
 
 func Start(fs api.Storer, cfg *Config, logger *slog.Logger) error {
 	if cfg == nil {
 		return errors.New("worker: config can't be nil")
 	}
-
 	if fs == nil {
 		return errors.New("worker: fs is required")
 	}
@@ -87,7 +86,7 @@ func Start(fs api.Storer, cfg *Config, logger *slog.Logger) error {
 
 	grp.Go(func() error {
 		defer cancel()
-		return w.workLoop(ctx)
+		return w.taskLoop(ctx)
 	})
 
 	grp.Go(func() error { return w.heartbeatLoop(ctx) })
@@ -95,8 +94,8 @@ func Start(fs api.Storer, cfg *Config, logger *slog.Logger) error {
 	return grp.Wait()
 }
 
-func (w *Worker) workLoop(ctx context.Context) error {
-	logger := w.logger.With("worker", w.id, "type", "work loop")
+func (w *Worker) taskLoop(ctx context.Context) error {
+	logger := w.logger.With("worker-id", w.id, "component", "work loop")
 
 	for {
 		select {
@@ -105,13 +104,9 @@ func (w *Worker) workLoop(ctx context.Context) error {
 		default:
 		}
 
-		work, err := w.requestWork()
+		work, err := w.askTask()
 		if err != nil {
-			logger.ErrorContext(
-				ctx,
-				"master unreachable, failed to request work...",
-				"error", err,
-			)
+			logger.ErrorContext(ctx, "master unreachable", "error", err)
 
 			if err := w.wait(ctx, retryInterval); err != nil {
 				return nil
@@ -122,41 +117,37 @@ func (w *Worker) workLoop(ctx context.Context) error {
 		switch work.Type {
 		case task.TypeMap:
 			err := w.doMap(work.Task)
-			w.report(work.Task.ID, work.Type, err)
+			w.reportTask(work.Task.ID, work.Type, err)
 		case task.TypeReduce:
 			err := w.doReduce(work.Task)
-			w.report(work.Task.ID, work.Type, err)
+			w.reportTask(work.Task.ID, work.Type, err)
 		case task.TypeWait:
 			if err := w.wait(ctx, pollInterval); err != nil {
 				return nil
 			}
-		default:
+		case task.TypeExit:
+			logger.InfoContext(ctx, "received exit signal, shutting down")
 			return nil
+		default:
+			logger.WarnContext(ctx, "unknown task type", "type", work.Type)
 		}
 	}
 }
 
 func (w *Worker) heartbeatLoop(ctx context.Context) error {
+	logger := w.logger.With("worker-id", w.id, "component", "heartbeat loop")
 	ticker := time.NewTicker(hearbeatInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			w.logger.DebugContext(
-				ctx,
-				"exiting heartbeat loop, ctx canceled",
-				"worker", w.id,
-			)
+			logger.DebugContext(ctx, "stopping heartbeat loop")
 			return nil
 
 		case <-ticker.C:
-			if err := w.pingMaster(); err != nil {
-				w.logger.ErrorContext(ctx,
-					"failed to ping master",
-					"error", err,
-					"worker", w.id,
-				)
+			if err := w.sendHeartbeat(); err != nil {
+				logger.DebugContext(ctx, "heartbeat failed", "error", err)
 			}
 		}
 	}
