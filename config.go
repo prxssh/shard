@@ -80,6 +80,9 @@ type Config struct {
 
 	// InputFiles is the file which are to be processed
 	InputFiles []string
+
+	// Underlying abstraction for reading/writing
+	Storer api.Storer
 }
 
 type Option func(*Config)
@@ -173,6 +176,12 @@ func WithInputGlob(pattern string) Option {
 		}
 
 		c.InputFiles = files
+	}
+}
+
+func WithStorer(storer api.Storer) Option {
+	return func(c *Config) {
+		c.Storer = storer
 	}
 }
 
