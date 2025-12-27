@@ -1,12 +1,21 @@
 package worker
 
 import (
+	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/prxssh/shard/api"
+	"github.com/prxssh/shard/internal/task"
 	"golang.org/x/sync/errgroup"
+)
+
+const (
+	hearbeatInterval = 5 * time.Second
+	pollInterval     = 1 * time.Second
+	retryInterval    = 5 * time.Second
 )
 
 // Config holds the runtime configuration and user-defined functions for a
@@ -71,17 +80,101 @@ func Start(fs api.Storer, cfg *Config, logger *slog.Logger) error {
 		w.logger = slog.Default()
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	var grp errgroup.Group
 
-	grp.Go(func() error { return w.workLoop() })
-	grp.Go(func() error { return w.heartbeatLoop() })
+	grp.Go(func() error {
+		defer cancel()
+		return w.workLoop(ctx)
+	})
+
+	grp.Go(func() error { return w.heartbeatLoop(ctx) })
+
 	return grp.Wait()
 }
 
-func (w *Worker) workLoop() error {
+func (w *Worker) workLoop(ctx context.Context) error {
+	logger := w.logger.With("worker", w.id, "type", "work loop")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
+		work, err := w.requestWork()
+		if err != nil {
+			logger.ErrorContext(
+				ctx,
+				"master unreachable, failed to request work...",
+				"error", err,
+			)
+
+			if err := w.wait(ctx, retryInterval); err != nil {
+				return nil
+			}
+			continue
+		}
+
+		switch work.Type {
+		case task.TypeMap:
+			err := w.doMap(work.Task)
+			w.report(work.Task.ID, work.Type, err)
+		case task.TypeReduce:
+			err := w.doReduce(work.Task)
+			w.report(work.Task.ID, work.Type, err)
+		case task.TypeWait:
+			if err := w.wait(ctx, pollInterval); err != nil {
+				return nil
+			}
+		default:
+			return nil
+		}
+	}
+}
+
+func (w *Worker) heartbeatLoop(ctx context.Context) error {
+	ticker := time.NewTicker(hearbeatInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			w.logger.DebugContext(
+				ctx,
+				"exiting heartbeat loop, ctx canceled",
+				"worker", w.id,
+			)
+			return nil
+
+		case <-ticker.C:
+			if err := w.pingMaster(); err != nil {
+				w.logger.ErrorContext(ctx,
+					"failed to ping master",
+					"error", err,
+					"worker", w.id,
+				)
+			}
+		}
+	}
+}
+
+func (w *Worker) wait(ctx context.Context, d time.Duration) error {
+	select {
+	case <-time.After(d):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (w *Worker) doMap(task *task.Task) error {
 	return nil
 }
 
-func (w *Worker) heartbeatLoop() error {
+func (w *Worker) doReduce(task *task.Task) error {
 	return nil
 }
