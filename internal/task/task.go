@@ -1,5 +1,11 @@
 package task
 
+import (
+	"time"
+
+	"storj.io/common/uuid"
+)
+
 // Type represents the phase of the MapReduce job.
 type Type uint8
 
@@ -62,4 +68,12 @@ type Task struct {
 	// ReduceID is the partition number this task is responsible for (0 to NReduce-1).
 	// The worker uses this to locate intermediate files.
 	ReduceID int
+
+	// StartTime, as the name itself suggests, is the time at which this task
+	// was assigned to a worker.
+	StartTime time.Time
+
+	// WorkerID represents the unique identifier of the worker executing this
+	// task.
+	WorkerID uuid.UUID
 }

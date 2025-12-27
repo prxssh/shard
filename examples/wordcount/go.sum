@@ -1,2 +1,8 @@
+github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/prxssh/shard v0.0.0-20251227094847-82b631de00b3 h1:TSF2QzyaKdP91VlDfMY7g5Pl/Pe3NYGGy1xYv70rMTM=
 github.com/prxssh/shard v0.0.0-20251227094847-82b631de00b3/go.mod h1:mK+mWr4f5GiGuSvX18qlTyDItbM8xkV08T4S/FUI4l4=
+github.com/prxssh/shard v0.0.0-20251227112327-5940203de745 h1:0RlV94gF+hJVyEzeLiEp61rsG+jpmMrh/0UeGbSLXzY=
+github.com/prxssh/shard v0.0.0-20251227112327-5940203de745/go.mod h1:RdinkK4y0Y4P0A79QdzOb5BOqBUUMwk+Wq0SPKVu5Es=
+golang.org/x/sync v0.19.0 h1:vV+1eWNmZ5geRlYjzm2adRgW2/mcpevXNg50YZtPCE4=
+golang.org/x/sync v0.19.0/go.mod h1:9KTHXmSnoGruLpwFjVSX0lNNA75CykiMECbovNTZqGI=

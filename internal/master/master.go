@@ -9,8 +9,12 @@ import (
 	"net/rpc"
 	"os"
 	"sync"
+	"sync/atomic"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/prxssh/shard/internal/task"
+	"golang.org/x/sync/errgroup"
 )
 
 // Config holds the configuration parameters for the Master node.
@@ -28,6 +32,10 @@ type Config struct {
 
 	// OutputDir is the location where intermediate and final files are stored.
 	OutputDir string
+
+	// WorkerInactivityDuration is the duration after which a worker is
+	// considered stalled or dead.
+	WorkerInactivityDuration time.Duration
 }
 
 // Master is the central coordinator of the MapReduce job.
@@ -47,6 +55,26 @@ type Master struct {
 
 	// reduceTasks holds all Reduce tasks, one for each partition (0 to NReduce-1).
 	reduceTasks []*task.Task
+
+	// mapping of workerID to its metadata
+	workers map[uuid.UUID]*worker
+
+	// metadata stats
+	stats *stats
+}
+
+type worker struct {
+	lastActivityAt time.Time
+	task           *task.Task
+	totalAssigned  atomic.Uint64
+	completedTasks atomic.Uint64
+	failedTasks    atomic.Uint64
+}
+
+type stats struct {
+	completed   atomic.Uint64
+	failed      atomic.Uint64
+	progressing atomic.Uint64
 }
 
 // Start initializes the Master, generates all necessary tasks from the input
@@ -59,8 +87,10 @@ func Start(inputFiles []string, cfg *Config, logger *slog.Logger) error {
 	}
 
 	m := &Master{
-		cfg:    cfg,
-		logger: logger,
+		cfg:     cfg,
+		logger:  logger,
+		stats:   &stats{},
+		workers: make(map[uuid.UUID]*worker),
 	}
 	if m.logger == nil {
 		m.logger = slog.Default()
@@ -80,7 +110,12 @@ func Start(inputFiles []string, cfg *Config, logger *slog.Logger) error {
 	m.createReduceTasks(&globalID)
 	m.logger.Info("reduce tasks generated", "count", len(m.reduceTasks))
 
-	return m.serve()
+	var grp errgroup.Group
+
+	grp.Go(func() error { return m.serve() })
+	grp.Go(func() error { return m.reclaimStalledWorkerLoop() })
+
+	return grp.Wait()
 }
 
 func (m *Master) createMapTasks(inputFile string, globalID *int64) ([]*task.Task, error) {
@@ -136,4 +171,64 @@ func (m *Master) serve() error {
 
 	m.logger.Info("master server started", "addr", m.cfg.Addr)
 	return http.Serve(listener, nil)
+}
+
+func (m *Master) reclaimStalledWorkerLoop() error {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		m.mut.Lock()
+		now := time.Now()
+
+		for id, w := range m.workers {
+			if now.Sub(w.lastActivityAt) > m.cfg.WorkerInactivityDuration {
+				m.logger.Warn("found dead worker", "id", id)
+
+				if w.task.State == task.StateProgress {
+					w.task.State = task.StateIdle
+					w.task.WorkerID = uuid.Nil
+					w.task.StartTime = time.Time{}
+					w.task = nil
+
+					m.stats.progressing.Add(^uint64(0))
+					m.stats.failed.Add(1)
+					w.failedTasks.Add(1)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (m *Master) scanTasks(tasks []*task.Task, workerID uuid.UUID) (*task.Task, bool) {
+	allDone := true
+
+	for _, t := range tasks {
+		if t.State == task.StateIdle {
+			t.State = task.StateProgress
+			t.StartTime = time.Now()
+			t.WorkerID = workerID
+
+			w, exists := m.workers[workerID]
+			if !exists {
+				w = &worker{}
+				m.workers[workerID] = w
+			}
+			w.task = t
+			w.lastActivityAt = time.Now()
+			w.totalAssigned.Add(1)
+
+			m.stats.progressing.Add(1)
+
+			return t, false
+		}
+
+		if t.State != task.StateCompleted {
+			allDone = false
+		}
+	}
+
+	return nil, allDone
 }

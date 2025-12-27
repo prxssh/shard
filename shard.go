@@ -34,10 +34,11 @@ func Run(cfg *Config) error {
 	return master.Start(
 		cfg.InputFiles,
 		&master.Config{
-			SplitSize: cfg.MapSplitSize,
-			NReduce:   cfg.ReduceTasks,
-			Addr:      cfg.MasterAddr,
-			OutputDir: cfg.OutputDir,
+			SplitSize:                cfg.MapSplitSize,
+			NReduce:                  cfg.ReduceTasks,
+			Addr:                     cfg.MasterAddr,
+			OutputDir:                cfg.OutputDir,
+			WorkerInactivityDuration: cfg.WorkerInactivityDuration,
 		},
 		nil,
 	)

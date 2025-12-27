@@ -6,8 +6,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/prxssh/shard/api"
+	"github.com/prxssh/shard/pkg/hash"
 )
 
 const (
@@ -56,7 +58,6 @@ type Config struct {
 	// Partitioner is an optional function to determine which Reduce task a key
 	// belongs to. If nil, Shard uses a deafult FNV-1a hash of the key modulo
 	// ReduceTasks.
-
 	Partitioner api.PartitionFunc
 
 	// ReduceTasks is the number of the output partitions (R).
@@ -83,6 +84,10 @@ type Config struct {
 
 	// Underlying abstraction for reading/writing
 	Storer api.Storer
+
+	// WorkerInactivityDuration is the duration after which a worker is
+	// considered stalled or dead.
+	WorkerInactivityDuration time.Duration
 }
 
 type Option func(*Config)
@@ -185,12 +190,19 @@ func WithStorer(storer api.Storer) Option {
 	}
 }
 
+func WithWorkerInactivityDuration(duration time.Duration) Option {
+	return func(c *Config) {
+		c.WorkerInactivityDuration = duration
+	}
+}
+
 func defaultConfig() *Config {
 	return &Config{
-		ReduceTasks:   1,
 		MapSplitSize:  64 * 1024 * 1026,
 		DashboardPort: defaultPort,
 		OutputDir:     defaultOutputDir,
+		ReduceTasks:   16,
+		Partitioner:   hash.FNV,
 	}
 }
 
