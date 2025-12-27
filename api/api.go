@@ -1,4 +1,4 @@
-package shard
+package api
 
 // KeyValue is the fundamental data unit for Shard.
 //

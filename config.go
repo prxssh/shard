@@ -3,6 +3,11 @@ package shard
 import (
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+
+	"github.com/prxssh/shard/api"
 )
 
 const (
@@ -38,21 +43,21 @@ type Config struct {
 	Role Role
 
 	// Mapper is the user's Map function (required).
-	Mapper MapFunc
+	Mapper api.MapFunc
 
 	// Reducer is the user's Reduce function (required).
-	Reducer ReduceFunc
+	Reducer api.ReduceFunc
 
 	// Combiner is an optional optimization function running on the Map worker.
 	// It pre-aggregates data locally to reduce network traffic during the
 	// shuffle. If nil, no combination is performed.
-	Combiner ReduceFunc
+	Combiner api.ReduceFunc
 
 	// Partitioner is an optional function to determine which Reduce task a key
 	// belongs to. If nil, Shard uses a deafult FNV-1a hash of the key modulo
 	// ReduceTasks.
 
-	Partitioner PartitionFunc
+	Partitioner api.PartitionFunc
 
 	// ReduceTasks is the number of the output partitions (R).
 	ReduceTasks int
@@ -72,6 +77,9 @@ type Config struct {
 	//
 	// If 0, Shard defaults to 64MB (64 * 1024 * 1024)
 	MapSplitSize int64
+
+	// InputFiles is the file which are to be processed
+	InputFiles []string
 }
 
 type Option func(*Config)
@@ -91,28 +99,28 @@ func WithRole(role Role) Option {
 }
 
 // WithMapper sets the user's Map function.
-func WithMapper(fn MapFunc) Option {
+func WithMapper(fn api.MapFunc) Option {
 	return func(c *Config) {
 		c.Mapper = fn
 	}
 }
 
 // WithReducer sets the user's Reduce function.
-func WithReducer(fn ReduceFunc) Option {
+func WithReducer(fn api.ReduceFunc) Option {
 	return func(c *Config) {
 		c.Reducer = fn
 	}
 }
 
 // WithCombiner sets the optional Combiner function.
-func WithCombiner(fn ReduceFunc) Option {
+func WithCombiner(fn api.ReduceFunc) Option {
 	return func(c *Config) {
 		c.Combiner = fn
 	}
 }
 
 // WithPartitioner sets the optional Partition function.
-func WithPartitioner(fn PartitionFunc) Option {
+func WithPartitioner(fn api.PartitionFunc) Option {
 	return func(c *Config) {
 		c.Partitioner = fn
 	}
@@ -146,6 +154,28 @@ func WithOutputDir(dir string) Option {
 	}
 }
 
+// WithInputGlob accepts a glob pattern (e.g., "data/*.txt"), expands it into a
+// list of files, and configures the job to use them.
+func WithInputGlob(pattern string) Option {
+	return func(c *Config) {
+		if pattern == "" {
+			return
+		}
+
+		files, err := filepath.Glob(pattern)
+		if err != nil {
+			slog.Error("failed to process input glob", "pattern", pattern, "error", err)
+			os.Exit(1)
+		}
+
+		if len(files) == 0 {
+			slog.Warn("input pattern matched no files", "pattern", pattern)
+		}
+
+		c.InputFiles = files
+	}
+}
+
 func defaultConfig() *Config {
 	return &Config{
 		ReduceTasks:   1,
@@ -166,30 +196,27 @@ func NewConfig(opts ...Option) *Config {
 
 func (cfg *Config) validate() error {
 	if cfg.Mapper == nil {
-		return errors.New("shard: Mapper function is required")
+		return errors.New("mapper function is required")
 	}
 
 	if cfg.Reducer == nil {
-		return errors.New("shard: Reducer function is required")
+		return errors.New("reducer function is required")
 	}
 
 	if cfg.MasterAddr == "" {
-		return errors.New("shard: MasterAddr cannot be empty")
+		return errors.New("master addr cannot be empty")
 	}
 
 	if cfg.ReduceTasks <= 0 {
-		return errors.New("shard: ReduceTasks must be greater than 0")
+		return errors.New("reduce tasks must be greater than 0")
 	}
 
 	if cfg.Role != RoleMaster && cfg.Role != RoleWorker {
-		return fmt.Errorf(
-			"shard: invalid Role '%s' (must be 'master' or 'worker')",
-			cfg.Role,
-		)
+		return fmt.Errorf("invalid role '%s' (must be 'master' or 'worker')", cfg.Role)
 	}
 
 	if cfg.MapSplitSize <= 0 {
-		return errors.New("shard: MapSplitSize must be greater than 0")
+		return errors.New("map split size must be greater than 0")
 	}
 
 	return nil
