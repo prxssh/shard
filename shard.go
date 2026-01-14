@@ -50,7 +50,7 @@ func Run(cfg *Config) error {
 		master, err := master.NewMaster(
 			&master.Config{
 				Address:        cfg.MasterAddress,
-				MaxConcurrency: cfg.MaxConcurrency,
+				WorkerMaxTasks: cfg.MaxConcurrency,
 			},
 			cfg.Logger,
 		)
@@ -72,6 +72,7 @@ func Run(cfg *Config) error {
 				NumReducers:    cfg.NumReducers,
 				MaxConcurrency: cfg.MaxConcurrency,
 				ChunkSize:      cfg.ChunkSize,
+				MasterAddr:     cfg.MasterAddress,
 			},
 			cfg.Logger,
 		)

@@ -13,6 +13,7 @@ type Config struct {
 	NumReducers    int
 	ChunkSize      int64
 	MaxConcurrency int
+	MasterAddr     string
 }
 
 type Worker struct {

@@ -8,7 +8,7 @@ import (
 
 type Config struct {
 	Address        string
-	MaxConcurrency int
+	WorkerMaxTasks int
 }
 
 type Master struct {
