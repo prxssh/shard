@@ -1,7 +1,12 @@
 package shard
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
+
+	"github.com/prxssh/shard/api"
 )
 
 const (
@@ -11,6 +16,8 @@ const (
 	DefaultChunkSize     = 64 * 1024 * 1024 // 64MB
 )
 
+// DefaultMaxConcurrency is the maximum number of tasks that a worker can
+// execute concurrently.
 var DefaultMaxConcurrency = runtime.NumCPU() * 2
 
 // Config holds the runtime configuration for the Shard library. It defines
@@ -51,18 +58,21 @@ type Config struct {
 	MaxConcurrency int
 
 	// Mapper is the client provided implementation of the Map function.
-	Mapper any
+	Mapper api.Mapper
 
 	// Reducer is the client provided implementation of the Reduce function.
-	Reducer any
+	Reducer api.Reducer
 
 	// Partitioner determines which reducer handles a specific key. If nil,
 	// a default hash-based partitioner is typically applied.
-	Partitioner any
+	Partitioner api.Partitioner
 
-	// Storere handles the abstraction of reading and writing files (e.g.,
+	// Storer handles the abstraction of reading and writing files (e.g.,
 	// wrapping local disk IO or cloud storage calls).
-	Storer any
+	Storer api.Storer
+
+	// Logger is an interface that the logger (e.g., slog, zlog) should satisfy.
+	Logger LoggerAdapter
 }
 
 type Option func(*Config)
@@ -103,27 +113,33 @@ func WithMaxConcurrency(limit int) Option {
 	}
 }
 
-func WithMapper(mapper any) Option {
+func WithMapper(mapper api.Mapper) Option {
 	return func(cfg *Config) {
 		cfg.Mapper = mapper
 	}
 }
 
-func WithReducer(reducer any) Option {
+func WithReducer(reducer api.Reducer) Option {
 	return func(cfg *Config) {
 		cfg.Reducer = reducer
 	}
 }
 
-func WithPartitioner(partitioner any) Option {
+func WithPartitioner(partitioner api.Partitioner) Option {
 	return func(cfg *Config) {
 		cfg.Partitioner = partitioner
 	}
 }
 
-func WithStorer(storer any) Option {
+func WithStorer(storer api.Storer) Option {
 	return func(cfg *Config) {
 		cfg.Storer = storer
+	}
+}
+
+func WithLogger(logger LoggerAdapter) Option {
+	return func(cfg *Config) {
+		cfg.Logger = logger
 	}
 }
 
@@ -136,15 +152,49 @@ func NewConfig(opts ...Option) (*Config, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
+	if err := cfg.normalize(); err != nil {
+		return nil, err
+	}
 
 	return cfg, nil
 }
 
 func (c *Config) normalize() error {
+	var err error
+
+	c.OutputDir, err = filepath.Abs(c.OutputDir)
+	if err != nil {
+		return fmt.Errorf("failed to resolve absolute output path: %w", err)
+	}
+	if err := os.MkdirAll(c.OutputDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create output directory %s: %w", c.OutputDir, err)
+	}
+
+	c.InputPath, err = filepath.Abs(c.InputPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve input path: %w", err)
+	}
+
 	return nil
 }
 
 func (c *Config) validate() error {
+	if c.InputPath == "" {
+		return fmt.Errorf("input path is required")
+	}
+	if c.Storer == nil {
+		return fmt.Errorf("storer is required")
+	}
+	if c.Mapper == nil {
+		return fmt.Errorf("mapper is required")
+	}
+	if c.Reducer == nil {
+		return fmt.Errorf("reducer is required")
+	}
+	if c.NumReducers < 1 {
+		return fmt.Errorf("num reducers must be > 0, got %d", c.NumReducers)
+	}
+
 	return nil
 }
 
@@ -155,5 +205,6 @@ func defaultConfig() *Config {
 		NumReducers:    DefaultNumReducers,
 		ChunkSize:      DefaultChunkSize,
 		MaxConcurrency: DefaultMaxConcurrency,
+		Logger:         NewSlogLogger(nil),
 	}
 }
