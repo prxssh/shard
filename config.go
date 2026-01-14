@@ -206,5 +206,6 @@ func defaultConfig() *Config {
 		ChunkSize:      DefaultChunkSize,
 		MaxConcurrency: DefaultMaxConcurrency,
 		Logger:         NewSlogLogger(nil),
+		Partitioner:    api.HashPartitioner,
 	}
 }
