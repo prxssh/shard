@@ -4,6 +4,8 @@ package shard
 import (
 	"context"
 	"log/slog"
+
+	"github.com/prxssh/shard/api"
 )
 
 // LevelTrace must be added, because [slog] package does not have one by
@@ -12,7 +14,7 @@ import (
 // and 8.
 const LevelTrace = slog.LevelDebug - 4
 
-func slogAttrsFromFields(fields LogFields) []any {
+func slogAttrsFromFields(fields api.LogFields) []any {
 	result := make([]any, 0, len(fields)*2)
 
 	for key, value := range fields {
@@ -30,22 +32,22 @@ type SlogLoggerAdapter struct {
 }
 
 // Error logs a message to [slog.LevelError].
-func (s *SlogLoggerAdapter) Error(msg string, err error, fields LogFields) {
+func (s *SlogLoggerAdapter) Error(msg string, err error, fields api.LogFields) {
 	s.log(slog.LevelError, msg, append(slogAttrsFromFields(fields), "error", err)...)
 }
 
 // Info logs a message to [slog.LevelInfo].
-func (s *SlogLoggerAdapter) Info(msg string, fields LogFields) {
+func (s *SlogLoggerAdapter) Info(msg string, fields api.LogFields) {
 	s.log(slog.LevelInfo, msg, slogAttrsFromFields(fields)...)
 }
 
 // Debug logs a message to [slog.LevelDebug].
-func (s *SlogLoggerAdapter) Debug(msg string, fields LogFields) {
+func (s *SlogLoggerAdapter) Debug(msg string, fields api.LogFields) {
 	s.log(slog.LevelDebug, msg, slogAttrsFromFields(fields)...)
 }
 
 // Trace logs a message to [LevelTrace].
-func (s *SlogLoggerAdapter) Trace(msg string, fields LogFields) {
+func (s *SlogLoggerAdapter) Trace(msg string, fields api.LogFields) {
 	s.log(
 		LevelTrace,
 		msg,
@@ -75,7 +77,7 @@ func (s *SlogLoggerAdapter) log(level slog.Level, msg string, args ...any) {
 
 // With return a [SlogLoggerAdapter] with a set of fields injected into all
 // consequent logging messages.
-func (s *SlogLoggerAdapter) With(fields LogFields) LoggerAdapter {
+func (s *SlogLoggerAdapter) With(fields api.LogFields) api.LoggerAdapter {
 	return &SlogLoggerAdapter{
 		slog:             s.slog.With(slogAttrsFromFields(fields)...),
 		shardLevelToSlog: s.shardLevelToSlog,
@@ -85,7 +87,7 @@ func (s *SlogLoggerAdapter) With(fields LogFields) LoggerAdapter {
 // NewSlogLogger creates an adapter to the standard library's structured
 // logging package. A `nil` logger is substituted for the result
 // of [slog.Default].
-func NewSlogLogger(logger *slog.Logger) LoggerAdapter {
+func NewSlogLogger(logger *slog.Logger) api.LoggerAdapter {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -104,7 +106,7 @@ func NewSlogLogger(logger *slog.Logger) LoggerAdapter {
 func NewSlogLoggerWithLevelMapping(
 	logger *slog.Logger,
 	shardLevelToSlog map[slog.Level]slog.Level,
-) LoggerAdapter {
+) api.LoggerAdapter {
 	if logger == nil {
 		logger = slog.Default()
 	}

@@ -1,5 +1,5 @@
 // Copied from: https://github.com/ThreeDotsLabs/watermill/blob/master/log.go
-package shard
+package api
 
 import (
 	"errors"
