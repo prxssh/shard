@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package worker.v1;
+
+option go_package = "github.com/prxssh/shard/proto";
+
+// Coordinator defines the interaction between worker nodes and the master 
+// scheduler.
+service Coordinator {
+  // RecordHeartbeat allows a worker to signal it is alive and report its 
+  // current load.
+  rpc RecordHeartbeat(HeartbeatRequest) returns (HeartbeatResponse) {}
+
+  // PollTasks allows a worker to request new work.
+  rpc PollTasks (TaskRequest) returns (TaskResponse) {}
+
+  // SubmitTaskResult reports the final status of a task execution.
+  rpc SubmitTaskResult (TaskResult) returns (TaskResponse) {}
+};
+
+// -------------------------------------------------------------------------
+// Heartbeat Messages
+// -------------------------------------------------------------------------
+message HeartbeatRequest {
+  string worker_id = 1;
+};
+
+message HeartbeatResponse {
+};
+
+// -------------------------------------------------------------------------
+// Task Polling Messages
+// -------------------------------------------------------------------------
+message TaskRequest {
+  string worker_id = 1;
+  uint32 available_capacity = 2;
+};
+
+message TaskResponse {
+  enum Action {
+    ACTION_UNSPECIFIED = 0;
+    WAIT = 1;
+    EXECUTE = 2;
+    SHUTDOWN = 3;
+  };
+  Action action = 1;
+
+  repeated TaskEntry tasks = 2;
+};
+
+message TaskEntry {
+  uint64 task_id = 1;
+  string attempt_id = 2;
+
+  oneof payload {
+    MapTask map_task = 3;
+    ReduceTask reduce_task = 4;
+  };
+};
+
+message MapTask {
+  string input_file = 1;
+  uint64 start_offset = 2;
+  uint32 length = 3;
+};
+
+message ReduceTask {
+  uint32 partition_id = 1;
+};
+
+// -------------------------------------------------------------------------
+// Task Completion Messages
+// -------------------------------------------------------------------------
+message TaskResult {
+  string worker_id = 1;
+  uint64 task_id = 2;
+
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    SUCCESS = 1;
+    FAILED_RETRYABLE = 2; // e.g., Network timeout, IO error
+    FAILED_FATAL = 3;     // e.g., Malformed data, code crash
+  };
+  Status status = 3;
+
+  string error_message = 4;
+  repeated string output_files = 5;
+};
