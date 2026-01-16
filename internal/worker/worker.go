@@ -1,7 +1,9 @@
 package worker
 
 import (
+	"bufio"
 	"context"
+	"io"
 	"sync"
 	"time"
 
@@ -27,7 +29,7 @@ type Worker struct {
 	partitioner api.Partitioner
 	mapper      api.Mapper
 	reducer     api.Reducer
-	fileSystem  api.Storer
+	fs          api.Filesystem
 	logger      api.LoggerAdapter
 	cfg         *Config
 
@@ -41,7 +43,7 @@ func NewWorker(
 	mapper api.Mapper,
 	reducer api.Reducer,
 	partitioner api.Partitioner,
-	fileSystem api.Storer,
+	fs api.Filesystem,
 	cfg *Config,
 	logger api.LoggerAdapter,
 ) (*Worker, error) {
@@ -60,7 +62,7 @@ func NewWorker(
 		partitioner: partitioner,
 		mapper:      mapper,
 		reducer:     reducer,
-		fileSystem:  fileSystem,
+		fs:          fs,
 		logger:      logger.With(api.LogFields{"source": "worker", "id": workerID}),
 		cfg:         cfg,
 		conn:        conn,
@@ -199,7 +201,63 @@ func (w *Worker) workerSlot(ctx context.Context, idx int) {
 }
 
 func (w *Worker) performMapTask(ctx context.Context, task *pb.MapTask) error {
-	return nil
+	buf := newPartitionBuffer(w.partitioner, w.cfg.NumReducers)
+
+	emitter := func(key, value string) error {
+		buf.insert(key, value)
+		return nil
+	}
+
+	f, err := w.fs.Open(task.GetInputFile())
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	chunkSize := int64(task.GetLength())
+	offset := int64(task.GetStartOffset())
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return err
+	}
+
+	scanner := bufio.NewScanner(f)
+	if offset > 0 {
+		if !scanner.Scan() {
+			return scanner.Err()
+		}
+	}
+
+	var bytesRead int64
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		if !scanner.Scan() {
+			break
+		}
+
+		line := scanner.Text()
+		if err := w.mapper(task.GetInputFile(), line, emitter); err != nil {
+			return err
+		}
+
+		// Add +1 for the newline character stripped by the scanner.
+		bytesRead += int64(len(line)) + 1
+		if bytesRead >= chunkSize {
+			break
+		}
+
+	}
+
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	return buf.flush()
 }
 
 func (w *Worker) performReduceTask(ctx context.Context, task *pb.ReduceTask) error {
