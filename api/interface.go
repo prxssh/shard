@@ -17,21 +17,46 @@ type Iterator interface {
 	io.Closer
 }
 
-// Storer abstracts the intermediate storage layer (the "Shuffle" phase).
+// Filesystem abstracts the underlying storage layer, providing a unified API
+// for interacting with local disks, distributed file systems (like HDFS), or
+// object storage (like S3).
 //
-// It is responsible for persisting data emitted by Mappers and serving it to
-// Reducers. In local mode, this might write to an in-memory or local disk. In
-// a distributed mode, this handles network transfers and distributed file
-// systems.
-type Storer interface {
-	// Push writes a key-value pair to the intermediate storage.
-	Push(key, value string) error
+// Implementations of this interface must be safe for concurrent use by multiple
+// goroutines.
+type Filesystem interface {
+	// Glob returns a list of file paths matching the specified pattern.
+	//
+	// The pattern syntax is implementation-specific but generally follows shell
+	// globbing rules (e.g., "input/*.txt" or "s3://bucket/data/2023-*").
+	Glob(pattern string) ([]string, error)
 
-	// Pull returns an Iterator for a specific key.
-	Pull(key string) (Iterator, error)
+	// Size returns the size of the file in bytes.
+	//
+	// This is primarily used by the Master to calculate Input Splits (assigning
+	// byte ranges to workers) without downloading the file content.
+	Size(filename string) (int64, error)
 
-	// Keys returns a list of all unique keys currently in the store.
-	Keys() ([]string, error)
+	// Open opens the named file for reading.
+	//
+	// It returns an io.ReadSeekCloser, allowing the caller to efficiently Seek()
+	// to a specific offset. This is crucial for workers to read only their
+	// assigned partition (chunk) of a large input file.
+	Open(filename string) (io.ReadSeekCloser, error)
+
+	// Create opens the named file for writing.
+	//
+	// If the file already exists, it should be truncated. This is used by
+	// workers to write intermediate shuffle data and final MapReduce outputs.
+	Create(filename string) (io.WriteCloser, error)
+
+	// Delete removes the named file from the storage system.
+	//
+	// This is used for cleaning up intermediate files after the Reduce phase
+	// completes or for removing temporary artifacts upon job failure.
+	Delete(filename string) error
+
+	// Abs returns an absolute representation of the path.
+	Abs(path string) (string, error)
 }
 
 // Emitter is the callback function passed to the Mapper.

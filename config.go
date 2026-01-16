@@ -3,7 +3,6 @@ package shard
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 
 	"github.com/prxssh/shard/api"
@@ -67,9 +66,9 @@ type Config struct {
 	// a default hash-based partitioner is typically applied.
 	Partitioner api.Partitioner
 
-	// Storer handles the abstraction of reading and writing files (e.g.,
+	// Filesystem handles the abstraction of reading and writing files (e.g.,
 	// wrapping local disk IO or cloud storage calls).
-	Storer api.Storer
+	Filesystem api.Filesystem
 
 	// Logger is an interface that the logger (e.g., slog, zlog) should satisfy.
 	Logger api.LoggerAdapter
@@ -133,9 +132,9 @@ func WithPartitioner(partitioner api.Partitioner) Option {
 	}
 }
 
-func WithStorer(storer api.Storer) Option {
+func WithFilesystem(storer api.Filesystem) Option {
 	return func(cfg *Config) {
-		cfg.Storer = storer
+		cfg.Filesystem = storer
 	}
 }
 
@@ -164,7 +163,7 @@ func NewConfig(opts ...Option) (*Config, error) {
 func (c *Config) normalize() error {
 	var err error
 
-	c.OutputDir, err = filepath.Abs(c.OutputDir)
+	c.OutputDir, err = c.Filesystem.Abs(c.OutputDir)
 	if err != nil {
 		return fmt.Errorf("failed to resolve absolute output path: %w", err)
 	}
@@ -172,7 +171,7 @@ func (c *Config) normalize() error {
 		return fmt.Errorf("failed to create output directory %s: %w", c.OutputDir, err)
 	}
 
-	c.inputFiles, err = filepath.Glob(c.InputPath)
+	c.inputFiles, err = c.Filesystem.Glob(c.InputPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve input path: %w", err)
 	}
@@ -184,8 +183,8 @@ func (c *Config) validate() error {
 	if c.InputPath == "" {
 		return fmt.Errorf("input path is required")
 	}
-	if c.Storer == nil {
-		return fmt.Errorf("storer is required")
+	if c.Filesystem == nil {
+		return fmt.Errorf("filesystem is required")
 	}
 	if c.Mapper == nil {
 		return fmt.Errorf("mapper is required")

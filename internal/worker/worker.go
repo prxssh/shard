@@ -174,6 +174,57 @@ func (w *Worker) workFetcherLoop(ctx context.Context) {
 
 func (w *Worker) workerSlot(ctx context.Context, idx int) {
 	for task := range w.workQueueCh {
-		w.logger.Info("processing task", api.LogFields{"id": task.TaskId, "slot": idx})
+		w.logger.Info("processing task", api.LogFields{"id": task.GetTaskId(), "slot": idx})
+
+		var err error
+
+		switch payload := task.GetPayload().(type) {
+		case *pb.TaskEntry_MapTask:
+			err = w.performMapTask(ctx, payload.MapTask)
+		case *pb.TaskEntry_ReduceTask:
+			err = w.performReduceTask(ctx, payload.ReduceTask)
+		}
+
+		// FIXME (@prxssh): classify error as retryable or fatal
+		if err != nil {
+			w.logger.Error(
+				"failed to perform task",
+				err,
+				api.LogFields{"id": task.GetTaskId(), "slot": idx},
+			)
+
+			w.reportTaskFailure(ctx, task.GetTaskId(), err.Error())
+		}
+	}
+}
+
+func (w *Worker) performMapTask(ctx context.Context, task *pb.MapTask) error {
+	return nil
+}
+
+func (w *Worker) performReduceTask(ctx context.Context, task *pb.ReduceTask) error {
+	return nil
+}
+
+func (w *Worker) reportTaskFailure(ctx context.Context, taskID uint64, message string) {
+	reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+	_, err := w.client.SubmitTaskResult(
+		reqCtx,
+		&pb.TaskResult{
+			WorkerId:     w.id.String(),
+			TaskId:       taskID,
+			ErrorMessage: message,
+			Status:       pb.TaskResult_FAILED_RETRYABLE,
+		},
+		nil,
+	)
+	cancel()
+
+	if err != nil {
+		w.logger.Error(
+			"failed to report task failure to master",
+			err,
+			api.LogFields{"worker_id": w.id},
+		)
 	}
 }
