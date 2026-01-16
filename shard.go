@@ -73,7 +73,6 @@ func Run(cfg *Config) error {
 				InputPath:      cfg.InputPath,
 				NumReducers:    cfg.NumReducers,
 				MaxConcurrency: cfg.MaxConcurrency,
-				ChunkSize:      cfg.ChunkSize,
 				MasterAddr:     cfg.MasterAddress,
 			},
 			cfg.Logger,
