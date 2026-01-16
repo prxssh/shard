@@ -72,7 +72,9 @@ type Config struct {
 	Storer api.Storer
 
 	// Logger is an interface that the logger (e.g., slog, zlog) should satisfy.
-	Logger LoggerAdapter
+	Logger api.LoggerAdapter
+
+	inputFiles []string
 }
 
 type Option func(*Config)
@@ -137,7 +139,7 @@ func WithStorer(storer api.Storer) Option {
 	}
 }
 
-func WithLogger(logger LoggerAdapter) Option {
+func WithLogger(logger api.LoggerAdapter) Option {
 	return func(cfg *Config) {
 		cfg.Logger = logger
 	}
@@ -170,7 +172,7 @@ func (c *Config) normalize() error {
 		return fmt.Errorf("failed to create output directory %s: %w", c.OutputDir, err)
 	}
 
-	c.InputPath, err = filepath.Abs(c.InputPath)
+	c.inputFiles, err = filepath.Glob(c.InputPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve input path: %w", err)
 	}

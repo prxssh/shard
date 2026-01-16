@@ -51,6 +51,8 @@ func Run(cfg *Config) error {
 			&master.Config{
 				Address:        cfg.MasterAddress,
 				WorkerMaxTasks: cfg.MaxConcurrency,
+				SplitSize:      cfg.ChunkSize,
+				InputFiles:     cfg.inputFiles,
 			},
 			cfg.Logger,
 		)
