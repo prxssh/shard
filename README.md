@@ -38,8 +38,12 @@ struct.
 | -                    | `ChunkSize`         | The size of each input split.             | `64MB`                              |
 | -                    | `MaxConcurrency`    | The maximum number of concurrent tasks.   | `runtime.NumCPU() * 2`              |
 
+Check the [config.go](https://github.com/prxssh/shard/blob/master/config.go)
+for complete configuration.
+
 ## Usage
 
+> [!WARNING] 
 > This project is written just for learning purposes and breaking changes are
 > to be expected.
 
