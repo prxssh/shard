@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/prxssh/shard/api"
-	"github.com/prxssh/shard/internal/task"
 )
 
 type Config struct {
@@ -29,12 +28,10 @@ type Stats struct {
 }
 
 type Master struct {
-	cfg         *Config
-	logger      api.LoggerAdapter
-	mapTasks    []*task.Task
-	reduceTasks []*task.Task
-	stats       *Stats
-	workers     map[uuid.UUID]*Worker
+	cfg     *Config
+	logger  api.LoggerAdapter
+	stats   *Stats
+	workers map[uuid.UUID]*Worker
 }
 
 func NewMaster(cfg *Config, logger api.LoggerAdapter) (*Master, error) {
