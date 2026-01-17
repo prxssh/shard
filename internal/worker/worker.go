@@ -3,7 +3,9 @@ package worker
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -14,7 +16,13 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-const requestTimeout = 4 * time.Second
+const (
+	requestTimeout      = 4 * time.Second
+	maxScannerTokenSize = 10 * 1024 * 1024
+
+	IntermediateDir = "intermediate"
+	FinalDir        = "final"
+)
 
 type Config struct {
 	OutputDir      string
@@ -29,6 +37,7 @@ type Worker struct {
 	partitioner api.Partitioner
 	mapper      api.Mapper
 	reducer     api.Reducer
+	combiner    api.Combiner
 	fs          api.Filesystem
 	logger      api.LoggerAdapter
 	cfg         *Config
@@ -43,6 +52,7 @@ func NewWorker(
 	mapper api.Mapper,
 	reducer api.Reducer,
 	partitioner api.Partitioner,
+	combiner api.Combiner,
 	fs api.Filesystem,
 	cfg *Config,
 	logger api.LoggerAdapter,
@@ -62,6 +72,7 @@ func NewWorker(
 		partitioner: partitioner,
 		mapper:      mapper,
 		reducer:     reducer,
+		combiner:    combiner,
 		fs:          fs,
 		logger:      logger.With(api.LogFields{"source": "worker", "id": workerID}),
 		cfg:         cfg,
@@ -176,15 +187,16 @@ func (w *Worker) workFetcherLoop(ctx context.Context) {
 
 func (w *Worker) workerSlot(ctx context.Context, idx int) {
 	for task := range w.workQueueCh {
-		w.logger.Info("processing task", api.LogFields{"id": task.GetTaskId(), "slot": idx})
+		taskID := task.GetTaskId()
+		w.logger.Info("processing task", api.LogFields{"id": taskID, "slot": idx})
 
 		var err error
 
 		switch payload := task.GetPayload().(type) {
 		case *pb.TaskEntry_MapTask:
-			err = w.performMapTask(ctx, payload.MapTask)
+			err = w.performMapTask(ctx, taskID, payload.MapTask)
 		case *pb.TaskEntry_ReduceTask:
-			err = w.performReduceTask(ctx, payload.ReduceTask)
+			err = w.performReduceTask(ctx, taskID, payload.ReduceTask)
 		}
 
 		// FIXME (@prxssh): classify error as retryable or fatal
@@ -192,22 +204,18 @@ func (w *Worker) workerSlot(ctx context.Context, idx int) {
 			w.logger.Error(
 				"failed to perform task",
 				err,
-				api.LogFields{"id": task.GetTaskId(), "slot": idx},
+				api.LogFields{"id": taskID, "slot": idx},
 			)
 
-			w.reportTaskFailure(ctx, task.GetTaskId(), err.Error())
+			w.reportTaskFailure(ctx, taskID, err.Error())
+			continue
 		}
+
+		w.reportTaskSuccess(ctx, taskID)
 	}
 }
 
-func (w *Worker) performMapTask(ctx context.Context, task *pb.MapTask) error {
-	buf := newPartitionBuffer(w.partitioner, w.cfg.NumReducers)
-
-	emitter := func(key, value string) error {
-		buf.insert(key, value)
-		return nil
-	}
-
+func (w *Worker) performMapTask(ctx context.Context, taskID uint64, task *pb.MapTask) error {
 	f, err := w.fs.Open(task.GetInputFile())
 	if err != nil {
 		return err
@@ -216,11 +224,16 @@ func (w *Worker) performMapTask(ctx context.Context, task *pb.MapTask) error {
 
 	chunkSize := int64(task.GetLength())
 	offset := int64(task.GetStartOffset())
+
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
 		return err
 	}
 
 	scanner := bufio.NewScanner(f)
+	bufFunc := make([]byte, maxScannerTokenSize)
+	scanner.Buffer(bufFunc, maxScannerTokenSize)
+
+	// Skip partial line if we aren't at the start
 	if offset > 0 {
 		if !scanner.Scan() {
 			return scanner.Err()
@@ -228,6 +241,88 @@ func (w *Worker) performMapTask(ctx context.Context, task *pb.MapTask) error {
 	}
 
 	var bytesRead int64
+	intermediatePath := filepath.Join(w.cfg.OutputDir, IntermediateDir)
+	buf := newPartitionBuffer(
+		taskID,
+		w.partitioner,
+		w.combiner,
+		w.cfg.NumReducers,
+		w.fs,
+		intermediatePath,
+	)
+	emitter := func(key, value string) error {
+		buf.insert(key, value)
+		return nil
+	}
+
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		line := scanner.Text()
+		readLen := int64(len(scanner.Bytes())) + 1
+		bytesRead += readLen
+
+		if err := w.mapper(task.GetInputFile(), line, emitter); err != nil {
+			return err
+		}
+
+		if bytesRead >= chunkSize {
+			break
+		}
+
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	return buf.flush()
+}
+
+func (w *Worker) performReduceTask(ctx context.Context, taskID uint64, task *pb.ReduceTask) error {
+	pattern := filepath.Join(
+		w.cfg.OutputDir,
+		IntermediateDir,
+		fmt.Sprintf("partition-%d-task-*.shard", task.GetPartitionId()),
+	)
+
+	files, err := w.fs.Glob(pattern)
+	if err != nil {
+		return err
+	}
+	if len(files) == 0 {
+		return nil
+	}
+
+	mergeIter, err := newMergeIterator(files, w.fs)
+	if err != nil {
+		return err
+	}
+	defer mergeIter.Close()
+
+	finalPath := filepath.Join(
+		w.cfg.OutputDir,
+		FinalDir,
+		fmt.Sprintf("part-%d.shard", task.GetPartitionId()),
+	)
+	outFile, err := w.fs.Create(finalPath)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+
+	emit := func(k, v string) error {
+		_, err := fmt.Fprintf(outFile, "%s\t%s\n", k, v)
+		return err
+	}
+
+	var (
+		currKey   string
+		valBuffer []string
+	)
 
 	for {
 		select {
@@ -236,31 +331,31 @@ func (w *Worker) performMapTask(ctx context.Context, task *pb.MapTask) error {
 		default:
 		}
 
-		if !scanner.Scan() {
+		k, v, ok := mergeIter.Next()
+		if !ok {
+			if len(valBuffer) > 0 {
+				if err := w.reducer(currKey, &sliceIterator{values: valBuffer}, emit); err != nil {
+					return err
+				}
+			}
+
+			if err := mergeIter.Error(); err != nil {
+				return err
+			}
 			break
 		}
 
-		line := scanner.Text()
-		if err := w.mapper(task.GetInputFile(), line, emitter); err != nil {
-			return err
+		if k != currKey && len(valBuffer) > 0 {
+			if err := w.reducer(currKey, &sliceIterator{values: valBuffer}, emit); err != nil {
+				return err
+			}
+			valBuffer = nil
 		}
 
-		// Add +1 for the newline character stripped by the scanner.
-		bytesRead += int64(len(line)) + 1
-		if bytesRead >= chunkSize {
-			break
-		}
-
+		currKey = k
+		valBuffer = append(valBuffer, v)
 	}
 
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-
-	return buf.flush()
-}
-
-func (w *Worker) performReduceTask(ctx context.Context, task *pb.ReduceTask) error {
 	return nil
 }
 
@@ -281,6 +376,28 @@ func (w *Worker) reportTaskFailure(ctx context.Context, taskID uint64, message s
 	if err != nil {
 		w.logger.Error(
 			"failed to report task failure to master",
+			err,
+			api.LogFields{"worker_id": w.id},
+		)
+	}
+}
+
+func (w *Worker) reportTaskSuccess(ctx context.Context, taskID uint64) {
+	reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+	_, err := w.client.SubmitTaskResult(
+		reqCtx,
+		&pb.TaskResult{
+			WorkerId: w.id.String(),
+			TaskId:   taskID,
+			Status:   pb.TaskResult_SUCCESS,
+		},
+		nil,
+	)
+	cancel()
+
+	if err != nil {
+		w.logger.Error(
+			"failed to report task success to master",
 			err,
 			api.LogFields{"worker_id": w.id},
 		)

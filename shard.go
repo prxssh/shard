@@ -67,6 +67,7 @@ func Run(cfg *Config) error {
 			cfg.Mapper,
 			cfg.Reducer,
 			cfg.Partitioner,
+			cfg.Combiner,
 			cfg.Filesystem,
 			&worker.Config{
 				OutputDir:      cfg.OutputDir,

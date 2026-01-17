@@ -62,6 +62,9 @@ type Config struct {
 	// Reducer is the client provided implementation of the Reduce function.
 	Reducer api.Reducer
 
+	// Combiner is the client provided implementation of the Combine function.
+	Combiner api.Combiner
+
 	// Partitioner determines which reducer handles a specific key. If nil,
 	// a default hash-based partitioner is typically applied.
 	Partitioner api.Partitioner
@@ -129,6 +132,12 @@ func WithReducer(reducer api.Reducer) Option {
 func WithPartitioner(partitioner api.Partitioner) Option {
 	return func(cfg *Config) {
 		cfg.Partitioner = partitioner
+	}
+}
+
+func WithCombiner(combiner api.Combiner) Option {
+	return func(cfg *Config) {
+		cfg.Combiner = combiner
 	}
 }
 

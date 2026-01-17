@@ -85,7 +85,18 @@ type Mapper func(key, value string, emit Emitter) error
 //
 // Returns:
 //   - error: Any error encountered during aggregation.
-type Reducer func(key string, values Iterator) error
+type Reducer func(key string, values Iterator, emit Emitter) error
+
+// Combiner is a function that aggregates values for a specific key.
+//
+// Arguments:
+//   - key: The intermediate key (e.g., a word in WordCount).
+//   - values: An Iterator allowing sequential access to all values for this
+//     key.
+//
+// Returns:
+//   - error: Any error encountered during aggregation.
+type Combiner func(key string, values Iterator, emit Emitter) error
 
 // Partitioner determines which Reduce task should process a specific key.
 //
