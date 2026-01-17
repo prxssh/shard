@@ -282,7 +282,7 @@ func (w *Worker) performMapTask(ctx context.Context, taskID uint64, task *pb.Map
 	return buf.flush()
 }
 
-func (w *Worker) performReduceTask(ctx context.Context, taskID uint64, task *pb.ReduceTask) error {
+func (w *Worker) performReduceTask(ctx context.Context, _ uint64, task *pb.ReduceTask) error {
 	pattern := filepath.Join(
 		w.cfg.OutputDir,
 		IntermediateDir,
